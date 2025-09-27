@@ -8,16 +8,16 @@ let Compute; // Will hold GCP Compute class
 async function loadCompute() {
   try {
     const module = await import('@google-cloud/compute');
-    const Compute = module.default; // Get the default export
-    console.log('GCP Compute class:', Compute);
-    if (Compute) {
-      return new Compute({ projectId: process.env.GCP_PROJECT_ID });
+    const ComputeClass = module.Compute || (module.default && module.default.Compute);
+    console.log('Compute class:', ComputeClass);
+    if (ComputeClass) {
+      return new ComputeClass({ projectId: process.env.GCP_PROJECT_ID });
     } else {
       console.warn('Compute class not found');
       return null;
     }
   } catch (err) {
-    console.error('Failed to load @google-cloud/compute:', err);
+    console.error('Error loading @google-cloud/compute:', err);
     return null;
   }
 }
