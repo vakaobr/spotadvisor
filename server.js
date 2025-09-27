@@ -8,7 +8,7 @@ require('dotenv').config();
 const SpotMonitor = require('./src/SpotMonitor');
 const Database = require('./src/Database');
 const AlertService = require('./src/AlertService');
-const logger = require('./src/logger') || require('./logger');
+const logger = require('./src/logger');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -16,37 +16,41 @@ const PORT = Number(process.env.PORT || 3000);
 // Initialize DB instance
 const db = new Database();
 
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, 'public')));
-
-// central error handler
-app.use((err, req, res, next) => {
-  logger.error(err);
-  res.status(500).json({ error: err.message || 'Internal server error' });
-});
-
-// Initialize database and start server
-db.initialize().then(() => {
+async function startServer() {
+  // Initialize SpotMonitor and its clients
   const monitor = new SpotMonitor(db);
-  const alertService = new AlertService(db);
+  await monitor.initializeClients();
 
-  // Health route
+  // Setup Express middlewares
+  app.use(cors());
+  app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
+  app.use(express.static(path.join(__dirname, 'public')));
+
+  // central error handler
+  app.use((err, req, res, next) => {
+    logger.error(err);
+    res.status(500).json({ error: err.message || 'Internal server error' });
+  });
+
+  // Initialize database and start server
+  await db.initialize();
+
+  // Define routes
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
-  // getAllSpotPrices endpoint
   app.get('/api/spot-prices', async (req, res, next) => {
     try {
       const { vmType, region } = req.query;
       const data = await monitor.getAllSpotPrices(vmType, region);
       res.json(data);
-    } catch (error) { next(error); }
+    } catch (error) {
+      next(error);
+    }
   });
 
-  // AWS pricing endpoint (on-demand via Pricing API)
   app.get('/api/aws/pricing', async (req, res) => {
     try {
       const { instanceTypes, regionName } = req.query;
@@ -60,7 +64,6 @@ db.initialize().then(() => {
     }
   });
 
-  // Get Azure eviction rates
   app.get('/api/azure/eviction-rates', async (req, res) => {
     try {
       const { vmSizes, regions } = req.query;
@@ -75,7 +78,6 @@ db.initialize().then(() => {
     }
   });
 
-  // Get AWS Spot price history
   app.get('/api/aws/spot-history', async (req, res) => {
     try {
       const { instanceTypes, region } = req.query;
@@ -90,7 +92,6 @@ db.initialize().then(() => {
     }
   });
 
-  // Get GCP Preemptible pricing
   app.get('/api/gcp/preemptible-prices', async (req, res) => {
     try {
       const { machineTypes, zone } = req.query;
@@ -105,7 +106,6 @@ db.initialize().then(() => {
     }
   });
 
-  // Get comparison across all clouds
   app.get('/api/compare', async (req, res) => {
     try {
       const cpuNum = Number(req.query.cpu) || 2;

@@ -1,4 +1,3 @@
-# Dockerfile (Example)
 FROM node:20-slim
 
 # Create app directory
@@ -13,8 +12,6 @@ RUN npm install
 # Copy the application source code
 COPY . .
 
-# Create a non-root user
-RUN groupadd -r node && useradd -r -g node node
 RUN chown -R node:node /app
 USER node
 

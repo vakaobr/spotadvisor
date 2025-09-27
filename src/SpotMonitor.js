@@ -3,16 +3,23 @@ const { ResourceGraphClient } = require('@azure/arm-resourcegraph');
 const { EC2Client, DescribeSpotPriceHistoryCommand } = require('@aws-sdk/client-ec2');
 const { PricingClient, GetProductsCommand } = require('@aws-sdk/client-pricing');
 const logger = require('./logger');
-let Compute; // Declare Compute outside the class
+let Compute; // Will hold GCP Compute class
 
 async function loadCompute() {
   try {
-    const computeModule = await import('@google-cloud/compute'); // Dynamic import
-    Compute = computeModule.Compute; // Assign to the outer Compute
-    console.log('Successfully loaded Compute module dynamically.'); // Add console log
+    const computeModule = await import('@google-cloud/compute');
+    console.log('GCP Module loaded:', computeModule);
+    const { Compute } = computeModule;
+    console.log('GCP Compute class:', Compute);
+    if (Compute) {
+      return new Compute({ projectId: process.env.GCP_PROJECT_ID });
+    } else {
+      console.warn('Compute class not found in module');
+      return null;
+    }
   } catch (err) {
-    console.error('Failed to load Compute module dynamically:', err);
-    Compute = null; // Ensure Compute is null if loading fails
+    console.error('Failed to load @google-cloud/compute:', err);
+    return null;
   }
 }
 
@@ -22,10 +29,13 @@ class SpotMonitor {
     this.cache = {
       awsPricing: { ts: 0, data: null },
       awsSpot: { ts: 0, data: null },
-      ttlMs: Number(process.env.CACHE_TTL_MS || 300 * 1000) // default 300s
+      ttlMs: Number(process.env.CACHE_TTL_MS || 300 * 1000)
     };
-    this.gcpCompute = null; // Initialize to null
-    this.initializeClients();
+    this.gcpCompute = null; // set later
+    this.azureCredential = null;
+    this.resourceGraphClient = null;
+    this.ec2Client = null;
+    this.pricingClient = null;
   }
 
   async initializeClients() {
@@ -34,13 +44,14 @@ class SpotMonitor {
       try {
         this.azureCredential = new DefaultAzureCredential();
         this.resourceGraphClient = new ResourceGraphClient(this.azureCredential);
+        console.log('Azure client initialized.');
       } catch (err) {
         logger.error('Failed to initialize Azure client', err);
         this.resourceGraphClient = null;
       }
     }
 
-    // AWS - EC2 for spot history
+    // AWS
     if (process.env.AWS_ACCESS_KEY_ID) {
       this.ec2Client = new EC2Client({
         region: process.env.AWS_REGION || 'us-east-1',
@@ -49,48 +60,37 @@ class SpotMonitor {
           secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
         }
       });
-
-      // Pricing API client must operate in us-east-1 (service endpoint)
       try {
         this.pricingClient = new PricingClient({
           region: process.env.AWS_PRICING_REGION || 'us-east-1',
           credentials: {
             accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-            secretAccessKey: process.env.AWS_SECRET_KEY
+            secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
           }
         });
+        console.log('AWS Pricing client initialized.');
       } catch (err) {
         logger.error('Failed to initialize AWS Pricing client', err);
         this.pricingClient = null;
       }
     }
 
-    //GCP
+    // GCP
     if (process.env.GCP_PROJECT_ID) {
-        try {
-            // Dynamically import the compute module
-            const computeModule = await import('@google-cloud/compute');
-            const { Compute } = computeModule;
-
-            if (Compute) {
-                try {
-                    this.gcpCompute = new Compute({ projectId: process.env.GCP_PROJECT_ID });
-                    logger.info('GCP Compute client initialized.');
-                } catch (err) {
-                    logger.error('Failed to initialize GCP Compute client', err);
-                    this.gcpCompute = null;
-                }
-            } else {
-                logger.warn('Compute module not loaded, skipping GCP client initialization.');
-                this.gcpCompute = null;
-            }
-        } catch (err) {
-            logger.error('Failed to load Compute module:', err);
-            this.gcpCompute = null;
+      try {
+        this.gcpCompute = await loadCompute();
+        if (this.gcpCompute) {
+          logger.info('GCP Compute client initialized.');
+        } else {
+          logger.warn('GCP Compute client not initialized.');
         }
-    } else {
-        logger.warn('GCP_PROJECT_ID is not set. Skipping GCP client initialization.');
+      } catch (err) {
+        logger.error('Error during GCP client setup:', err);
         this.gcpCompute = null;
+      }
+    } else {
+      logger.warn('GCP_PROJECT_ID is not set. Skipping GCP client initialization.');
+      this.gcpCompute = null;
     }
   }
 
