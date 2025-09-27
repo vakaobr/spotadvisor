@@ -1,10 +1,12 @@
-FROM node:20-alpine
+FROM node:20-slim  
 
 WORKDIR /app
 
+# No need to install build dependencies here, Debian images have most of them already
+
 # Copy package files
 COPY package*.json ./
-RUN npm install --production
+RUN npm install
 
 # Copy application files
 COPY . .

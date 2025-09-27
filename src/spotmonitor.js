@@ -1,10 +1,20 @@
-// src/SpotMonitor.js
 const { DefaultAzureCredential } = require('@azure/identity');
 const { ResourceGraphClient } = require('@azure/arm-resourcegraph');
 const { EC2Client, DescribeSpotPriceHistoryCommand } = require('@aws-sdk/client-ec2');
 const { PricingClient, GetProductsCommand } = require('@aws-sdk/client-pricing');
-const { Compute } = require('@google-cloud/compute');
 const logger = require('./logger');
+let Compute; // Declare Compute outside the class
+
+async function loadCompute() {
+  try {
+    const computeModule = await import('@google-cloud/compute'); // Dynamic import
+    Compute = computeModule.Compute; // Assign to the outer Compute
+    console.log('Successfully loaded Compute module dynamically.'); // Add console log
+  } catch (err) {
+    console.error('Failed to load Compute module dynamically:', err);
+    Compute = null; // Ensure Compute is null if loading fails
+  }
+}
 
 class SpotMonitor {
   constructor(database) {
@@ -14,10 +24,11 @@ class SpotMonitor {
       awsSpot: { ts: 0, data: null },
       ttlMs: Number(process.env.CACHE_TTL_MS || 300 * 1000) // default 300s
     };
+    this.gcpCompute = null; // Initialize to null
     this.initializeClients();
   }
 
-  initializeClients() {
+  async initializeClients() {
     // Azure
     if (process.env.AZURE_CLIENT_ID) {
       try {
@@ -45,7 +56,7 @@ class SpotMonitor {
           region: process.env.AWS_PRICING_REGION || 'us-east-1',
           credentials: {
             accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-            secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+            secretAccessKey: process.env.AWS_SECRET_KEY
           }
         });
       } catch (err) {
@@ -56,19 +67,45 @@ class SpotMonitor {
 
     // GCP
     if (process.env.GCP_PROJECT_ID) {
-      try {
-        this.gcpCompute = new Compute();
-      } catch (err) {
-        logger.error('Failed to initialize GCP Compute client', err);
-        this.gcpCompute = null;
-      }
+            try {
+                const computeModule = await import('@google-cloud/compute');
+                Compute = computeModule.Compute; // Load dynamically.
+                logger.info('Successfully loaded Compute module dynamically.');
+                if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+                  logger.error('GOOGLE_APPLICATION_CREDENTIALS is not set.  Authentication will likely fail.');
+                }
+                if (Compute) {
+                    logger.info('Compute is defined immediately after loading.');
+                } else {
+                    logger.warn('Compute is UNDEFINED immediately after loading!');
+                }
+
+                if (Compute) {
+                    try {
+                        this.gcpCompute = new Compute({ projectId: process.env.GCP_PROJECT_ID });
+                        logger.info('GCP Compute client initialized.');
+                    } catch (err) {
+                        logger.error('Failed to initialize GCP Compute client', err);
+                        this.gcpCompute = null;
+                    }
+                } else {
+                    logger.warn('Compute module not loaded, skipping GCP client initialization.');
+                    this.gcpCompute = null;
+                }
+            } catch (err) {
+                logger.error('Failed to load Compute module dynamically:', err);
+                this.gcpCompute = null;
+            }
+        } else {
+            logger.warn('GCP_PROJECT_ID is not set. Skipping GCP client initialization.');
+            this.gcpCompute = null;
+        }
     }
-  }
 
   // return latest saved prices optionally filtered
   async getAllSpotPrices(vmType, region) {
     const rows = await this.db.getLatestPrices();
-    return rows.filter((r) => {
+    return rows.filter(r => {
       if (vmType && r.vm_type !== vmType) return false;
       if (region && r.region !== region) return false;
       return true;
@@ -188,7 +225,7 @@ class SpotMonitor {
       const history = response.SpotPriceHistory || [];
       const results = history.map(item => {
         const az = item.AvailabilityZone || '';
-        const regionName = az ? az.slice(0, -1) : (item.RegionName || region);
+        const regionName = az ? az.slice(0, -1) : item.RegionName || region;
         return {
           cloud: 'AWS',
           source: 'spot_history',
@@ -238,7 +275,10 @@ class SpotMonitor {
       ));
 
       // cache entire results and record seen instance types
-      this.cache.awsSpot = { ts: Date.now(), data: { results: processed, instanceTypesSeen: instanceTypes } };
+      this.cache.awsSpot = {
+        ts: Date.now(),
+        data: { results: processed, instanceTypesSeen: instanceTypes }
+      };
 
       return processed;
     } catch (err) {
@@ -259,7 +299,7 @@ class SpotMonitor {
 
     try {
       const resp = await this.gcpCompute.machineTypes.list({ project, zone });
-      const machineTypeList = (resp && resp[0] && resp[0].items) ? resp[0].items : (resp.items || resp) || [];
+      const machineTypeList = (resp && resp[0] && resp[0].items) ? resp[0].items : resp.items || resp || [];
 
       for (const machineType of machineTypeList) {
         if (!machineType) continue;
@@ -272,7 +312,7 @@ class SpotMonitor {
             vm_type: machineType.name,
             region: zone,
             vcpus: machineType.guestCpus,
-            memory_gb: Math.round((machineType.memoryMb || 0) / 1024),
+            memory_gb: Math.round(machineType.memoryMb / 1024),
             regular_price: regularPrice,
             price: preemptiblePrice,
             savings: '70%',
@@ -303,7 +343,7 @@ class SpotMonitor {
     const memoryPrice = 0.004237;
     const cpus = machineType.guestCpus || 1;
     const memoryGb = (machineType.memoryMb || 1024) / 1024;
-    return (cpus * cpuPrice) + (memoryGb * memoryPrice);
+    return cpus * cpuPrice + memoryGb * memoryPrice;
   }
 
   // Compare across clouds (simple)
@@ -437,12 +477,14 @@ class SpotMonitor {
     if (cpus <= 8 && memory <= 32) return 'standard_d8s_v4';
     return 'standard_d16s_v4';
   }
+
   mapToAWSType(cpus, memory) {
     if (cpus <= 2 && memory <= 8) return 't3.large';
     if (cpus <= 4 && memory <= 16) return 't3.xlarge';
     if (cpus <= 8 && memory <= 32) return 't3.2xlarge';
     return 'm5.4xlarge';
   }
+
   mapToGCPType(cpus, memory) {
     if (cpus <= 2 && memory <= 8) return 'n1-standard-2';
     if (cpus <= 4 && memory <= 16) return 'n1-standard-4';
@@ -455,24 +497,36 @@ class SpotMonitor {
     const results = { azure: null, aws_spot: null, aws_pricing: null, gcp: null };
 
     if (this.resourceGraphClient) {
-      try { results.azure = await this.getAzureEvictionRates(); }
-      catch (err) { logger.error('Azure collection failed', err); }
+      try {
+        results.azure = await this.getAzureEvictionRates();
+      } catch (err) {
+        logger.error('Azure collection failed', err);
+      }
     } else {
       logger.debug('Azure not configured, skipping');
     }
 
     if (this.ec2Client) {
-      try { results.aws_spot = await this.getAWSSpotHistory(); }
-      catch (err) { logger.error('AWS spot collection failed', err); }
-      try { results.aws_pricing = await this.getAWSPricing([]); } // empty -> will return cached/all
-      catch (err) { logger.error('AWS pricing collection failed', err); }
+      try {
+        results.aws_spot = await this.getAWSSpotHistory();
+      } catch (err) {
+        logger.error('AWS spot collection failed', err);
+      }
+      try {
+        results.aws_pricing = await this.getAWSPricing([]); // empty -> will return cached/all
+      } catch (err) {
+        logger.error('AWS pricing collection failed', err);
+      }
     } else {
       logger.debug('AWS not configured, skipping');
     }
 
     if (this.gcpCompute) {
-      try { results.gcp = await this.getGCPPreemptiblePrices(); }
-      catch (err) { logger.error('GCP collection failed', err); }
+      try {
+        results.gcp = await this.getGCPPreemptiblePrices();
+      } catch (err) {
+        logger.error('GCP collection failed', err);
+      }
     } else {
       logger.debug('GCP not configured, skipping');
     }

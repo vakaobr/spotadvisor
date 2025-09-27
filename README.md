@@ -2,6 +2,10 @@
 
 Monitor and compare Spot/Preemptible VM prices and eviction rates across AWS, Azure, and GCP.
 
+**NOTE:** Before you continue, please DO NOT consider this as a production-ready solution. This is a personal project to learn and experiment with multi-cloud APIs, monitoring, and alerting. Use at your own risk.
+
+**Also remember:** I'm not a javascript/Node.js developer, and 99% of the code was AI generated, so bear with any non best practices and errors you may find over there! PRs and suggestions are welcome!
+
 ## Features
 
 - Real-time monitoring of Spot VM prices across AWS, Azure, and GCP

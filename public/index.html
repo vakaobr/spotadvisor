@@ -643,31 +643,31 @@
         // Display comparison results
         function displayComparison(comparisons) {
             const container = document.getElementById('comparison-results');
-            
+
             if (!comparisons || comparisons.length === 0) {
                 container.innerHTML = '<p>No comparison data available</p>';
                 return;
             }
-            
+
             container.innerHTML = '<h3>Comparison Results</h3><div class="comparison-grid"></div>';
             const grid = container.querySelector('.comparison-grid');
-            
+
             comparisons.forEach(item => {
                 const card = document.createElement('div');
                 card.className = `vm-card ${item.cloud.toLowerCase()}`;
-                
+
                 const price = item.price || item.currentPrice || item.preemptiblePrice;
-                
+
                 card.innerHTML = `
                     <span class="cloud-badge badge-${item.cloud.toLowerCase()}">${item.cloud}</span>
-                    <h3>${item.vmType}</h3>
+                    <h3>${item.vm_type}</h3>
                     <div class="price-display ${item.cloud.toLowerCase()}-price">
                         $${price.toFixed(4)}/hour
                     </div>
                     ${item.evictionRate ? `<div>Eviction: ${item.evictionRate}</div>` : ''}
                     ${item.estimatedInterruptionRate ? `<div>Interruption: ${item.estimatedInterruptionRate}</div>` : ''}
                 `;
-                
+
                 grid.appendChild(card);
             });
         }
