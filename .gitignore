@@ -1,3 +1,4 @@
-gcp-credentials.json
+data/gcp-credentials.json
+data/combined.log
 .env
 node_modules

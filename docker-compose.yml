@@ -4,11 +4,14 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./data:/app/data
-      - ./.env:/app/.env
-      - ./gcp-credentials.json:/app/gcp-credentials.json
+      - ./data:/app/data  # Use a 'data' directory for persistent storage
+      - ./.env:/app/.env # Make sure .env is not overriding key variables
+      - ./data/gcp-credentials.json:/app/gcp-credentials.json  # Mount the credentials file
+
     environment:
       - NODE_ENV=production
       - GOOGLE_APPLICATION_CREDENTIALS=/app/gcp-credentials.json
       - GCP_PROJECT_ID=vcpro-467612
+
+    user: node  # Specify a non-root user for security.  Assumes 'node' user exists in your image.
     restart: unless-stopped

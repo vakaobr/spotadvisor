@@ -97,3 +97,18 @@
 {"level":"info","message":"Successfully loaded Compute module dynamically.","timestamp":"2025-09-27T17:35:27.072Z"}
 {"level":"warn","message":"Compute is UNDEFINED immediately after loading!","timestamp":"2025-09-27T17:35:27.073Z"}
 {"level":"warn","message":"Compute module not loaded, skipping GCP client initialization.","timestamp":"2025-09-27T17:35:27.073Z"}
+{"level":"info","message":"Shutdown requested, closing server...","timestamp":"2025-09-27T17:38:25.193Z"}
+{"level":"info","message":"Database connection closed","timestamp":"2025-09-27T17:38:25.200Z"}
+{"level":"info","message":"Connected to SQLite database","timestamp":"2025-09-27T17:39:28.276Z"}
+{"level":"info","message":"Multi-Cloud Spot Monitor running on port 3000","timestamp":"2025-09-27T17:39:28.319Z"}
+{"level":"info","message":"Successfully loaded Compute module dynamically.","timestamp":"2025-09-27T17:39:31.917Z"}
+{"level":"warn","message":"Compute is UNDEFINED immediately after loading!","timestamp":"2025-09-27T17:39:31.918Z"}
+{"level":"warn","message":"Compute module not loaded, skipping GCP client initialization.","timestamp":"2025-09-27T17:39:31.918Z"}
+{"level":"info","message":"Shutdown requested, closing server...","timestamp":"2025-09-27T17:42:45.263Z"}
+{"level":"info","message":"Database connection closed","timestamp":"2025-09-27T17:42:45.274Z"}
+{"level":"info","message":"Connected to SQLite database","timestamp":"2025-09-27T17:43:37.305Z"}
+{"level":"info","message":"Successfully loaded Compute module.","timestamp":"2025-09-27T17:43:38.191Z"}
+{"level":"warn","message":"Compute module not loaded, skipping GCP client initialization.","timestamp":"2025-09-27T17:43:38.192Z"}
+{"level":"info","message":"Multi-Cloud Spot Monitor running on port 3000","timestamp":"2025-09-27T17:43:38.206Z"}
+{"level":"info","message":"Shutdown requested, closing server...","timestamp":"2025-09-27T17:45:17.376Z"}
+{"level":"info","message":"Database connection closed","timestamp":"2025-09-27T17:45:17.388Z"}

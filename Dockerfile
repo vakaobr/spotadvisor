@@ -1,21 +1,25 @@
-FROM node:20-slim  
+# Dockerfile (Example)
+FROM node:20-slim
 
+# Create app directory
 WORKDIR /app
 
-# No need to install build dependencies here, Debian images have most of them already
-
-# Copy package files
+# Copy package.json and package-lock.json to the working directory
 COPY package*.json ./
+
+# Install dependencies
 RUN npm install
 
-# Copy application files
+# Copy the application source code
 COPY . .
 
-# Create data directory
-RUN mkdir -p data
+# Create a non-root user
+RUN groupadd -r node && useradd -r -g node node
+RUN chown -R node:node /app
+USER node
 
-# Expose port
+# Expose the port
 EXPOSE 3000
 
-# Run the application
-CMD ["node", "server.js"]
+# Start the application
+CMD [ "node", "server.js" ]

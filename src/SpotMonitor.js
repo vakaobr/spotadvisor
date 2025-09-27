@@ -65,42 +65,34 @@ class SpotMonitor {
       }
     }
 
-    // GCP
+    //GCP
     if (process.env.GCP_PROJECT_ID) {
-            try {
-                const computeModule = await import('@google-cloud/compute');
-                Compute = computeModule.Compute; // Load dynamically.
-                logger.info('Successfully loaded Compute module dynamically.');
-                if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-                  logger.error('GOOGLE_APPLICATION_CREDENTIALS is not set.  Authentication will likely fail.');
-                }
-                if (Compute) {
-                    logger.info('Compute is defined immediately after loading.');
-                } else {
-                    logger.warn('Compute is UNDEFINED immediately after loading!');
-                }
+        try {
+            // Dynamically import the compute module
+            const computeModule = await import('@google-cloud/compute');
+            const { Compute } = computeModule;
 
-                if (Compute) {
-                    try {
-                        this.gcpCompute = new Compute({ projectId: process.env.GCP_PROJECT_ID });
-                        logger.info('GCP Compute client initialized.');
-                    } catch (err) {
-                        logger.error('Failed to initialize GCP Compute client', err);
-                        this.gcpCompute = null;
-                    }
-                } else {
-                    logger.warn('Compute module not loaded, skipping GCP client initialization.');
+            if (Compute) {
+                try {
+                    this.gcpCompute = new Compute({ projectId: process.env.GCP_PROJECT_ID });
+                    logger.info('GCP Compute client initialized.');
+                } catch (err) {
+                    logger.error('Failed to initialize GCP Compute client', err);
                     this.gcpCompute = null;
                 }
-            } catch (err) {
-                logger.error('Failed to load Compute module dynamically:', err);
+            } else {
+                logger.warn('Compute module not loaded, skipping GCP client initialization.');
                 this.gcpCompute = null;
             }
-        } else {
-            logger.warn('GCP_PROJECT_ID is not set. Skipping GCP client initialization.');
+        } catch (err) {
+            logger.error('Failed to load Compute module:', err);
             this.gcpCompute = null;
         }
+    } else {
+        logger.warn('GCP_PROJECT_ID is not set. Skipping GCP client initialization.');
+        this.gcpCompute = null;
     }
+  }
 
   // return latest saved prices optionally filtered
   async getAllSpotPrices(vmType, region) {
