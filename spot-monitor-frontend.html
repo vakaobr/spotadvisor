@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Cloud Spot VM Monitor</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+        }
+
+        .title {
+            font-size: 2.5em;
+            font-weight: 700;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .subtitle {
+            color: #6b7280;
+            font-size: 1.1em;
+            margin-top: 10px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            background: white;
+            padding: 10px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        .tab {
+            padding: 12px 24px;
+            background: transparent;
+            border: 2px solid #e5e7eb;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .tab.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-color: transparent;
+        }
+
+        .cloud-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+            margin-right: 5px;
+        }
+
+        .badge-azure { background: #0078d4; color: white; }
+        .badge-aws { background: #ff9900; color: white; }
+        .badge-gcp { background: #4285f4; color: white; }
+
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        .comparison-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .vm-card {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.2s;
+        }
+
+        .vm-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .vm-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+        }
+
+        .vm-card.azure::before { background: #0078d4; }
+        .vm-card.aws::before { background: #ff9900; }
+        .vm-card.gcp::before { background: #4285f4; }
+
+        .price-display {
+            font-size: 2em;
+            font-weight: 700;
+            margin: 15px 0;
+        }
+
+        .azure-price { color: #0078d4; }
+        .aws-price { color: #ff9900; }
+        .gcp-price { color: #4285f4; }
+
+        .eviction-rate {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-weight: 600;
+            margin: 10px 0;
+        }
+
+        .rate-low { background: #10b981; color: white; }
+        .rate-medium { background: #f59e0b; color: white; }
+        .rate-high { background: #ef4444; color: white; }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #374151;
+        }
+
+        .form-input, .form-select {
+            width: 100%;
+            padding: 10px 15px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 1em;
+        }
+
+        .form-input:focus, .form-select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 10px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .button:hover {
+            transform: translateY(-2px);
+        }
+
+        .button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .button-secondary {
+            background: #6b7280;
+        }
+
+        .alert-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .alert-item {
+            background: #f9fafb;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .delete-btn {
+            background: #ef4444;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #6b7280;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin-top: 20px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2em;
+            font-weight: 700;
+            color: #1f2937;
+        }
+
+        .stat-label {
+            color: #6b7280;
+            margin-top: 5px;
+        }
+
+        .refresh-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            background: #10b981;
+            border-radius: 50%;
+            margin-left: 10px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 class="title">Multi-Cloud Spot VM Monitor</h1>
+            <p class="subtitle">
+                Real-time monitoring of Spot/Preemptible VMs across AWS, Azure, and GCP
+                <span class="refresh-indicator"></span>
+            </p>
+        </div>
+
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('dashboard')">📊 Dashboard</button>
+            <button class="tab" onclick="switchTab('comparison')">⚖️ Compare</button>
+            <button class="tab" onclick="switchTab('alerts')">🔔 Alerts</button>
+            <button class="tab" onclick="switchTab('history')">📈 History</button>
+        </div>
+
+        <!-- Dashboard Tab -->
+        <div id="dashboard-tab" class="tab-content">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="lowest-price">-</div>
+                    <div class="stat-label">Lowest Price/Hour</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="best-cloud">-</div>
+                    <div class="stat-label">Best Cloud Provider</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="avg-eviction">-</div>
+                    <div class="stat-label">Avg. Eviction Rate</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="total-monitored">-</div>
+                    <div class="stat-label">VMs Monitored</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Current Spot Prices</h2>
+                <div class="comparison-grid" id="current-prices">
+                    <div class="loading">Loading prices...</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Price Trends (Last 24 Hours)</h2>
+                <div class="chart-container">
+                    <canvas id="price-chart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Comparison Tab -->
+        <div id="comparison-tab" class="tab-content" style="display:none;">
+            <div class="card">
+                <h2>Compare Similar VMs Across Clouds</h2>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 20px;">
+                    <div class="form-group">
+                        <label class="form-label">vCPUs</label>
+                        <select id="compare-cpus" class="form-select">
+                            <option value="2">2 vCPUs</option>
+                            <option value="4">4 vCPUs</option>
+                            <option value="8">8 vCPUs</option>
+                            <option value="16">16 vCPUs</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Memory (GB)</label>
+                        <select id="compare-memory" class="form-select">
+                            <option value="8">8 GB</option>
+                            <option value="16">16 GB</option>
+                            <option value="32">32 GB</option>
+                            <option value="64">64 GB</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Region</label>
+                        <select id="compare-region" class="form-select">
+                            <option value="us-east">US East</option>
+                            <option value="us-west">US West</option>
+                            <option value="europe">Europe</option>
+                            <option value="asia">Asia</option>
+                        </select>
+                    </div>
+                </div>
+                <button class="button" onclick="compareVMs()">Compare VMs</button>
+                <div id="comparison-results" style="margin-top: 30px;"></div>
+            </div>
+        </div>
+
+        <!-- Alerts Tab -->
+        <div id="alerts-tab" class="tab-content" style="display:none;">
+            <div class="card">
+                <h2>Configure Alerts</h2>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div>
+                        <div class="form-group">
+                            <label class="form-label">Cloud Provider</label>
+                            <select id="alert-cloud" class="form-select">
+                                <option value="Azure">Azure</option>
+                                <option value="AWS">AWS</option>
+                                <option value="GCP">GCP</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">VM Type</label>
+                            <input type="text" id="alert-vm-type" class="form-input" placeholder="e.g., standard_d2s_v4">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Region</label>
+                            <input type="text" id="alert-region" class="form-input" placeholder="e.g., eastus">
+                        </div>
+                    </div>
+                    <div>
+                        <div class="form-group">
+                            <label class="form-label">Price Threshold ($/hour)</label>
+                            <input type="number" id="alert-price" class="form-input" step="0.001" placeholder="0.050">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Eviction Rate Threshold (%)</label>
+                            <input type="number" id="alert-eviction" class="form-input" step="1" placeholder="10">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Email</label>
+                            <input type="email" id="alert-email" class="form-input" placeholder="alerts@example.com">
+                        </div>
+                    </div>
+                </div>
+                <button class="button" onclick="createAlert()">Create Alert</button>
+            </div>
+
+            <div class="card" style="margin-top: 20px;">
+                <h2>Active Alerts</h2>
+                <div class="alert-list" id="alert-list">
+                    <div class="loading">Loading alerts...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- History Tab -->
+        <div id="history-tab" class="tab-content" style="display:none;">
+            <div class="card">
+                <h2>Historical Data</h2>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 20px;">
+                    <div class="form-group">
+                        <label class="form-label">Cloud</label>
+                        <select id="history-cloud" class="form-select">
+                            <option value="">All</option>
+                            <option value="Azure">Azure</option>
+                            <option value="AWS">AWS</option>
+                            <option value="GCP">GCP</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">VM Type</label>
+                        <input type="text" id="history-vm-type" class="form-input" placeholder="e.g., t3.large">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Days</label>
+                        <select id="history-days" class="form-select">
+                            <option value="1">Last 24 Hours</option>
+                            <option value="7">Last 7 Days</option>
+                            <option value="30">Last 30 Days</option>
+                        </select>
+                    </div>
+                </div>
+                <button class="button" onclick="loadHistory()">Load History</button>
+                <div class="chart-container" style="margin-top: 30px;">
+                    <canvas id="history-chart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = window.location.origin + '/api';
+        let priceChart = null;
+        let historyChart = null;
+
+        // Tab switching
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.style.display = 'none');
+            
+            event.target.classList.add('active');
+            document.getElementById(`${tabName}-tab`).style.display = 'block';
+            
+            // Load data for the active tab
+            if (tabName === 'dashboard') loadDashboard();
+            if (tabName === 'alerts') loadAlerts();
+        }
+
+        // Load dashboard data
+        async function loadDashboard() {
+            try {
+                const response = await axios.get(`${API_URL}/spot-prices`);
+                const prices = response.data;
+                
+                displayCurrentPrices(prices);
+                updateStats(prices);
+                updatePriceChart(prices);
+            } catch (error) {
+                console.error('Error loading dashboard:', error);
+            }
+        }
+
+        // Display current prices
+        function displayCurrentPrices(prices) {
+            const container = document.getElementById('current-prices');
+            
+            if (!prices || Object.keys(prices).length === 0) {
+                container.innerHTML = '<div class="loading">No data available</div>';
+                return;
+            }
+            
+            container.innerHTML = '';
+            
+            // Group by cloud
+            const grouped = {};
+            prices.forEach(item => {
+                if (!grouped[item.cloud]) grouped[item.cloud] = [];
+                grouped[item.cloud].push(item);
+            });
+            
+            Object.entries(grouped).forEach(([cloud, items]) => {
+                items.forEach(item => {
+                    const card = document.createElement('div');
+                    card.className = `vm-card ${cloud.toLowerCase()}`;
+                    
+                    const evictionClass = getEvictionClass(item.evictionRate);
+                    const price = item.price || item.currentPrice || item.preemptiblePrice;
+                    
+                    card.innerHTML = `
+                        <span class="cloud-badge badge-${cloud.toLowerCase()}">${cloud}</span>
+                        <h3>${item.vmType || item.instanceType || item.machineType}</h3>
+                        <div class="price-display ${cloud.toLowerCase()}-price">
+                            $${price ? price.toFixed(4) : 'N/A'}
+                        </div>
+                        <div>📍 ${item.region || item.zone}</div>
+                        ${item.evictionRate ? `
+                            <div class="eviction-rate ${evictionClass}">
+                                Eviction: ${item.evictionRate}
+                            </div>
+                        ` : ''}
+                    `;
+                    
+                    container.appendChild(card);
+                });
+            });
+        }
+
+        // Get eviction rate class
+        function getEvictionClass(rate) {
+            if (!rate) return 'rate-low';
+            const value = parseFloat(rate);
+            if (value <= 5) return 'rate-low';
+            if (value <= 15) return 'rate-medium';
+            return 'rate-high';
+        }
+
+        // Update statistics
+        function updateStats(prices) {
+            if (!prices || prices.length === 0) return;
+            
+            const validPrices = prices
+                .map(p => p.price || p.currentPrice || p.preemptiblePrice)
+                .filter(p => p > 0);
+            
+            const lowestPrice = Math.min(...validPrices);
+            document.getElementById('lowest-price').textContent = `$${lowestPrice.toFixed(4)}`;
+            
+            // Find best cloud
+            const cloudCounts = {};
+            prices.forEach(p => {
+                cloudCounts[p.cloud] = (cloudCounts[p.cloud] || 0) + 1;
+            });
+            const bestCloud = Object.keys(cloudCounts).reduce((a, b) => 
+                cloudCounts[a] > cloudCounts[b] ? a : b
+            );
+            document.getElementById('best-cloud').textContent = bestCloud;
+            
+            // Average eviction rate (Azure only)
+            const evictionRates = prices
+                .filter(p => p.evictionRate)
+                .map(p => parseFloat(p.evictionRate));
+            const avgEviction = evictionRates.length > 0
+                ? (evictionRates.reduce((a, b) => a + b, 0) / evictionRates.length).toFixed(1)
+                : 'N/A';
+            document.getElementById('avg-eviction').textContent = avgEviction + '%';
+            
+            document.getElementById('total-monitored').textContent = prices.length;
+        }
+
+        // Update price chart
+        function updatePriceChart(prices) {
+            const ctx = document.getElementById('price-chart').getContext('2d');
+            
+            if (priceChart) {
+                priceChart.destroy();
+            }
+            
+            // Prepare data for chart
+            const datasets = [];
+            const clouds = ['Azure', 'AWS', 'GCP'];
+            const colors = {
+                Azure: '#0078d4',
+                AWS: '#ff9900',
+                GCP: '#4285f4'
+            };
+            
+            clouds.forEach(cloud => {
+                const cloudPrices = prices.filter(p => p.cloud === cloud);
+                if (cloudPrices.length > 0) {
+                    datasets.push({
+                        label: cloud,
+                        data: cloudPrices.map(p => ({
+                            x: p.vmType || p.instanceType || p.machineType,
+                            y: p.price || p.currentPrice || p.preemptiblePrice
+                        })),
+                        borderColor: colors[cloud],
+                        backgroundColor: colors[cloud] + '20'
+                    });
+                }
+            });
+            
+            priceChart = new Chart(ctx, {
+                type: 'bar',
+                data: { datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Price ($/hour)'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Compare VMs
+        async function compareVMs() {
+            const cpus = document.getElementById('compare-cpus').value;
+            const memory = document.getElementById('compare-memory').value;
+            const region = document.getElementById('compare-region').value;
+            
+            try {
+                const response = await axios.get(`${API_URL}/compare`, {
+                    params: { cpu: cpus, memory: memory, region: region }
+                });
+                
+                displayComparison(response.data);
+            } catch (error) {
+                console.error('Error comparing VMs:', error);
+            }
+        }
+
+        // Display comparison results
+        function displayComparison(comparisons) {
+            const container = document.getElementById('comparison-results');
+            
+            if (!comparisons || comparisons.length === 0) {
+                container.innerHTML = '<p>No comparison data available</p>';
+                return;
+            }
+            
+            container.innerHTML = '<h3>Comparison Results</h3><div class="comparison-grid"></div>';
+            const grid = container.querySelector('.comparison-grid');
+            
+            comparisons.forEach(item => {
+                const card = document.createElement('div');
+                card.className = `vm-card ${item.cloud.toLowerCase()}`;
+                
+                const price = item.price || item.currentPrice || item.preemptiblePrice;
+                
+                card.innerHTML = `
+                    <span class="cloud-badge badge-${item.cloud.toLowerCase()}">${item.cloud}</span>
+                    <h3>${item.vmType}</h3>
+                    <div class="price-display ${item.cloud.toLowerCase()}-price">
+                        $${price.toFixed(4)}/hour
+                    </div>
+                    ${item.evictionRate ? `<div>Eviction: ${item.evictionRate}</div>` : ''}
+                    ${item.estimatedInterruptionRate ? `<div>Interruption: ${item.estimatedInterruptionRate}</div>` : ''}
+                `;
+                
+                grid.appendChild(card);
+            });
+        }
+
+        // Create alert
+        async function createAlert() {
+            const alertData = {
+                cloud: document.getElementById('alert-cloud').value,
+                vmType: document.getElementById('alert-vm-type').value,
+                region: document.getElementById('alert-region').value,
+                thresholdPrice: parseFloat(document.getElementById('alert-price').value),
+                thresholdEviction: parseFloat(document.getElementById('alert-eviction').value),
+                notifyEmail: document.getElementById('alert-email').value
+            };
+            
+            try {
+                await axios.post(`${API_URL}/alerts`, alertData);
+                alert('Alert created successfully!');
+                loadAlerts();
+                
+                // Clear form
+                document.getElementById('alert-vm-type').value = '';
+                document.getElementById('alert-region').value = '';
+                document.getElementById('alert-price').value = '';
+                document.getElementById('alert-eviction').value = '';
+                document.getElementById('alert-email').value = '';
+            } catch (error) {
+                console.error('Error creating alert:', error);
+                alert('Failed to create alert');
+            }
+        }
+
+        // Load alerts
+        async function loadAlerts() {
+            try {
+                const response = await axios.get(`${API_URL}/alerts`);
+                displayAlerts(response.data);
+            } catch (error) {
+                console.error('Error loading alerts:', error);
+            }
+        }
+
+        // Display alerts
+        function displayAlerts(alerts) {
+            const container = document.getElementById('alert-list');
+            
+            if (!alerts || alerts.length === 0) {
+                container.innerHTML = '<p>No alerts configured</p>';
+                return;
+            }
+            
+            container.innerHTML = '';
+            alerts.forEach(alert => {
+                const item = document.createElement('div');
+                item.className = '
