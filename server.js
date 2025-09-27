@@ -33,7 +33,7 @@ async function startServer() {
     res.status(500).json({ error: err.message || 'Internal server error' });
   });
 
-  // Initialize database and start server
+  // Initialize database
   await db.initialize();
 
   // Define routes
@@ -118,30 +118,23 @@ async function startServer() {
     }
   });
 
-  // Alert configuration routes
-  app.post('/api/alerts', async (req, res, next) => {
+  // Alert routes
+    app.get('/api/alerts', async (req, res, next) => {
     try {
-      const payload = req.body || {};
-      if (!payload.cloud || !payload.vmType) {
-        return res.status(400).json({ error: 'cloud and vmType are required' });
-      }
-      const alert = await alertService.createAlert(payload);
-      res.status(201).json(alert);
-    } catch (error) { next(error); }
-  });
-
-  app.get('/api/alerts', async (req, res, next) => {
-    try {
-      const alerts = await alertService.getAlerts();
+      const alerts = await new AlertService(db).getAlerts();
       res.json(alerts);
-    } catch (error) { next(error); }
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.delete('/api/alerts/:id', async (req, res, next) => {
     try {
-      await alertService.deleteAlert(req.params.id);
+      await new AlertService(db).deleteAlert(req.params.id);
       res.json({ success: true });
-    } catch (error) { next(error); }
+    } catch (error) {
+      next(error);
+    }
   });
 
   // history route
@@ -150,7 +143,9 @@ async function startServer() {
       const { cloud, vmType, region, days = 7 } = req.query;
       const history = await db.getHistory(cloud, vmType, region, Number(days));
       res.json(history);
-    } catch (error) { next(error); }
+    } catch (error) {
+      next(error);
+    }
   });
 
   // Schedule periodic price checks
@@ -159,7 +154,7 @@ async function startServer() {
     logger.info('Running scheduled price check...');
     try {
       await monitor.collectAllPrices();
-      await alertService.checkAlerts();
+      await new AlertService(db).checkAlerts();
     } catch (error) {
       logger.error('Scheduled check failed:', error);
     }
@@ -182,8 +177,14 @@ async function startServer() {
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+}
 
-}).catch(error => {
-  console.error('Failed to initialize database:', error);
-  process.exit(1);
-});
+// Call the async main function and handle startup errors
+(async () => {
+  try {
+    await startServer();
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
+})();
