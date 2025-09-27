@@ -1,3 +1,4 @@
+// server.js
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -7,152 +8,182 @@ require('dotenv').config();
 const SpotMonitor = require('./src/SpotMonitor');
 const Database = require('./src/Database');
 const AlertService = require('./src/AlertService');
+const logger = require('./src/logger') || require('./logger');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT || 3000);
 
-// Initialize services
+// Initialize DB instance
 const db = new Database();
-const monitor = new SpotMonitor(db);
-const alertService = new AlertService(db);
 
-// Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static('public'));
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, 'public')));
 
-// API Routes
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
-
-// Get current spot prices across all clouds
-app.get('/api/spot-prices', async (req, res) => {
-  try {
-    const { vmType, region } = req.query;
-    const data = await monitor.getAllSpotPrices(vmType, region);
-    res.json(data);
-  } catch (error) {
-    console.error('Error fetching spot prices:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Get Azure eviction rates
-app.get('/api/azure/eviction-rates', async (req, res) => {
-  try {
-    const { vmSizes, regions } = req.query;
-    const data = await monitor.getAzureEvictionRates(
-      vmSizes ? vmSizes.split(',') : [],
-      regions ? regions.split(',') : []
-    );
-    res.json(data);
-  } catch (error) {
-    console.error('Error fetching eviction rates:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Get AWS Spot price history
-app.get('/api/aws/spot-history', async (req, res) => {
-  try {
-    const { instanceTypes, region } = req.query;
-    const data = await monitor.getAWSSpotHistory(
-      instanceTypes ? instanceTypes.split(',') : [],
-      region
-    );
-    res.json(data);
-  } catch (error) {
-    console.error('Error fetching AWS spot history:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Get GCP Preemptible pricing
-app.get('/api/gcp/preemptible-prices', async (req, res) => {
-  try {
-    const { machineTypes, zone } = req.query;
-    const data = await monitor.getGCPPreemptiblePrices(
-      machineTypes ? machineTypes.split(',') : [],
-      zone
-    );
-    res.json(data);
-  } catch (error) {
-    console.error('Error fetching GCP prices:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Get comparison across all clouds
-app.get('/api/compare', async (req, res) => {
-  try {
-    const { cpu, memory, region } = req.query;
-    const comparison = await monitor.compareAcrossClouds(cpu, memory, region);
-    res.json(comparison);
-  } catch (error) {
-    console.error('Error comparing clouds:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Alert configuration
-app.post('/api/alerts', async (req, res) => {
-  try {
-    const alert = await alertService.createAlert(req.body);
-    res.json(alert);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/api/alerts', async (req, res) => {
-  try {
-    const alerts = await alertService.getAlerts();
-    res.json(alerts);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete('/api/alerts/:id', async (req, res) => {
-  try {
-    await alertService.deleteAlert(req.params.id);
-    res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Historical data
-app.get('/api/history', async (req, res) => {
-  try {
-    const { cloud, vmType, region, days = 7 } = req.query;
-    const history = await db.getHistory(cloud, vmType, region, days);
-    res.json(history);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Schedule periodic price checks (every hour)
-cron.schedule('0 * * * *', async () => {
-  console.log('Running scheduled price check...');
-  try {
-    await monitor.collectAllPrices();
-    await alertService.checkAlerts();
-  } catch (error) {
-    console.error('Scheduled check failed:', error);
-  }
+// central error handler
+app.use((err, req, res, next) => {
+  logger.error(err);
+  res.status(500).json({ error: err.message || 'Internal server error' });
 });
 
 // Initialize database and start server
 db.initialize().then(() => {
-  app.listen(PORT, () => {
-    console.log(\`Multi-Cloud Spot Monitor running on port \${PORT}\`);
-    console.log(\`Visit http://localhost:\${PORT} to view the dashboard\`);
+  const monitor = new SpotMonitor(db);
+  const alertService = new AlertService(db);
+
+  // Health route
+  app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
+
+  // getAllSpotPrices endpoint
+  app.get('/api/spot-prices', async (req, res, next) => {
+    try {
+      const { vmType, region } = req.query;
+      const data = await monitor.getAllSpotPrices(vmType, region);
+      res.json(data);
+    } catch (error) { next(error); }
+  });
+
+  // AWS pricing endpoint (on-demand via Pricing API)
+  app.get('/api/aws/pricing', async (req, res) => {
+    try {
+      const { instanceTypes, regionName } = req.query;
+      const types = instanceTypes ? instanceTypes.split(',') : [];
+      const region = regionName || 'US East (N. Virginia)';
+      const data = await monitor.getAWSPricing(types, region);
+      res.json(data);
+    } catch (error) {
+      logger.error('Error fetching AWS pricing:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get Azure eviction rates
+  app.get('/api/azure/eviction-rates', async (req, res) => {
+    try {
+      const { vmSizes, regions } = req.query;
+      const data = await monitor.getAzureEvictionRates(
+        vmSizes ? vmSizes.split(',') : [],
+        regions ? regions.split(',') : []
+      );
+      res.json(data);
+    } catch (error) {
+      logger.error('Error fetching eviction rates:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get AWS Spot price history
+  app.get('/api/aws/spot-history', async (req, res) => {
+    try {
+      const { instanceTypes, region } = req.query;
+      const data = await monitor.getAWSSpotHistory(
+        instanceTypes ? instanceTypes.split(',') : [],
+        region
+      );
+      res.json(data);
+    } catch (error) {
+      logger.error('Error fetching AWS spot history:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get GCP Preemptible pricing
+  app.get('/api/gcp/preemptible-prices', async (req, res) => {
+    try {
+      const { machineTypes, zone } = req.query;
+      const data = await monitor.getGCPPreemptiblePrices(
+        machineTypes ? machineTypes.split(',') : [],
+        zone
+      );
+      res.json(data);
+    } catch (error) {
+      logger.error('Error fetching GCP prices:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get comparison across all clouds
+  app.get('/api/compare', async (req, res) => {
+    try {
+      const cpuNum = Number(req.query.cpu) || 2;
+      const memoryNum = Number(req.query.memory) || 8;
+      const comparison = await monitor.compareAcrossClouds(cpuNum, memoryNum);
+      res.json(comparison);
+    } catch (error) {
+      logger.error('Error comparing clouds:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Alert configuration routes
+  app.post('/api/alerts', async (req, res, next) => {
+    try {
+      const payload = req.body || {};
+      if (!payload.cloud || !payload.vmType) {
+        return res.status(400).json({ error: 'cloud and vmType are required' });
+      }
+      const alert = await alertService.createAlert(payload);
+      res.status(201).json(alert);
+    } catch (error) { next(error); }
+  });
+
+  app.get('/api/alerts', async (req, res, next) => {
+    try {
+      const alerts = await alertService.getAlerts();
+      res.json(alerts);
+    } catch (error) { next(error); }
+  });
+
+  app.delete('/api/alerts/:id', async (req, res, next) => {
+    try {
+      await alertService.deleteAlert(req.params.id);
+      res.json({ success: true });
+    } catch (error) { next(error); }
+  });
+
+  // history route
+  app.get('/api/history', async (req, res, next) => {
+    try {
+      const { cloud, vmType, region, days = 7 } = req.query;
+      const history = await db.getHistory(cloud, vmType, region, Number(days));
+      res.json(history);
+    } catch (error) { next(error); }
+  });
+
+  // Schedule periodic price checks
+  const cronExpr = process.env.CRON_EXPR || '0 * * * *';
+  cron.schedule(cronExpr, async () => {
+    logger.info('Running scheduled price check...');
+    try {
+      await monitor.collectAllPrices();
+      await alertService.checkAlerts();
+    } catch (error) {
+      logger.error('Scheduled check failed:', error);
+    }
+  }, {
+    timezone: process.env.CRON_TZ || 'UTC'
+  });
+
+  const server = app.listen(PORT, () => {
+    logger.info(`Multi-Cloud Spot Monitor running on port ${PORT}`);
+  });
+
+  // graceful shutdown
+  const shutdown = () => {
+    logger.info('Shutdown requested, closing server...');
+    server.close(async () => {
+      if (db.close) await db.close();
+      logger.info('Shutdown complete.');
+      process.exit(0);
+    });
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+
 }).catch(error => {
   console.error('Failed to initialize database:', error);
   process.exit(1);
 });
-`;

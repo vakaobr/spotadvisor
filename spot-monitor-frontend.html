@@ -722,4 +722,113 @@
             container.innerHTML = '';
             alerts.forEach(alert => {
                 const item = document.createElement('div');
-                item.className = '
+                item.className = 'alert-item';
+                item.innerHTML = `
+                    <div>
+                        <strong>${alert.cloud} - ${alert.vmType}</strong><br>
+                        Region: ${alert.region}<br>
+                        Price Threshold: $${alert.thresholdPrice.toFixed(4)}/hour<br>
+                        Eviction Threshold: ${alert.thresholdEviction}%<br>
+                        Notify: ${alert.notifyEmail}
+                    </div>
+                    <button class="delete-btn" onclick="deleteAlert('${alert.id}')">Delete</button>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        // Delete alert
+        async function deleteAlert(alertId) {
+            try {
+                await axios.delete(`${API_URL}/alerts/${alertId}`);
+                alert('Alert deleted successfully!');
+                loadAlerts();
+            } catch (error) {
+                console.error('Error deleting alert:', error);
+                alert('Failed to delete alert');
+            }
+        }
+
+        // Load historical data
+        async function loadHistory() {
+            const cloud = document.getElementById('history-cloud').value;
+            const vmType = document.getElementById('history-vm-type').value;
+            const days = document.getElementById('history-days').value;
+
+            try {
+                const response = await axios.get(`${API_URL}/history`, {
+                    params: { cloud, vmType, days }
+                });
+                displayHistoryChart(response.data);
+            } catch (error) {
+                console.error('Error loading historical data:', error);
+            }
+        }
+
+        // Display historical data chart
+        function displayHistoryChart(historyData) {
+            const ctx = document.getElementById('history-chart').getContext('2d');
+            
+            if (historyChart) {
+                historyChart.destroy();
+            }
+            
+            const datasets = Object.entries(historyData).map(([vmType, data]) => ({
+                label: vmType,
+                data: data.map(point => ({
+                    x: new Date(point.timestamp),
+                    y: point.price
+                })),
+                borderColor: getRandomColor(),
+                fill: false
+            }));
+
+            historyChart = new Chart(ctx, {
+                type: 'line',
+                data: { datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: 'day'
+                            },
+                            title: {
+                                display: true,
+                                text: 'Date'
+                            }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Price ($/hour)'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Generate random color for chart lines
+        function getRandomColor() {
+            const letters = '0123456789ABCDEF';
+            let color = '#';
+            for (let i = 0; i < 6; i++) {
+                color += letters[Math.floor(Math.random() * 16)];
+            }
+            return color;
+        }
+
+        // Initial load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadDashboard();
+        });
+
+        // Refresh data every 5 minutes
+        setInterval(loadDashboard, 300000);
+    </script>
+</body>
+</html>
